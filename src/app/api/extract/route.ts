@@ -4,10 +4,11 @@ import { BlockedUrlError } from '@/lib/guard';
 import { BrowserUnavailableError } from '@/lib/browser';
 import { slugFromUrl } from '@/lib/catalog-data';
 import { ExtractorBusyError, runExtract } from '@/lib/extract-job';
+import { isErrorName } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 90;
+export const maxDuration = 60;
 
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60_000;
@@ -66,18 +67,24 @@ export async function POST(req: Request) {
     if (err instanceof BlockedUrlError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
-    if (err instanceof BrowserUnavailableError) {
-      return NextResponse.json({ error: err.message }, { status: 503 });
+    if (err instanceof BrowserUnavailableError || isErrorName(err, 'BrowserUnavailableError')) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 503 });
     }
-    if (err instanceof ExtractorBusyError) {
-      return NextResponse.json({ error: err.message }, { status: 503, headers: { 'Retry-After': '10' } });
+    if (err instanceof ExtractorBusyError || isErrorName(err, 'ExtractorBusyError')) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 503, headers: { 'Retry-After': '10' } });
     }
-    if (err instanceof ExtractionError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ExtractionError || isErrorName(err, 'ExtractionError')) {
+      const extraction = err as ExtractionError;
+      return NextResponse.json({ error: extraction.message }, { status: extraction.status || 502 });
     }
     console.error('[extract] unexpected failure:', err);
+    const detail = err instanceof Error ? err.message.split('\n')[0] : '';
     return NextResponse.json(
-      { error: 'Something went wrong while analysing that site.' },
+      {
+        error: detail
+          ? `Extract failed on this host: ${detail}`
+          : 'Something went wrong while analysing that site.',
+      },
       { status: 500 },
     );
   }

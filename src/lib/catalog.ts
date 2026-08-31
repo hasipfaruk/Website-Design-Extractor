@@ -9,8 +9,17 @@ function rootDir(): string {
   return process.cwd();
 }
 
+function isServerless(): boolean {
+  return Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+}
+
+/** Repo is read-only on Vercel; only /tmp can be written. */
+function writableRoot(): string {
+  return isServerless() ? '/tmp/websift' : rootDir();
+}
+
 export function cachedDesignPath(slug: string): string {
-  return path.join(rootDir(), 'designs', slug, 'DESIGN.md');
+  return path.join(writableRoot(), 'designs', slug, 'DESIGN.md');
 }
 
 export function bundledDesignPath(entry: CatalogEntry): string | null {
@@ -26,6 +35,8 @@ export function resolveDesignPath(slug: string): string | null {
   }
   const cached = cachedDesignPath(slug);
   if (existsSync(cached)) return cached;
+  const shipped = path.join(rootDir(), 'designs', slug, 'DESIGN.md');
+  if (existsSync(shipped)) return shipped;
   return null;
 }
 
@@ -55,7 +66,7 @@ export function saveDesignMarkdown(slug: string, markdown: string): string {
 }
 
 export function extractBundlePath(slug: string): string {
-  return path.join(rootDir(), 'designs', slug, 'extract.json');
+  return path.join(writableRoot(), 'designs', slug, 'extract.json');
 }
 
 export function saveExtractBundle(slug: string, bundle: unknown): void {
@@ -66,13 +77,19 @@ export function saveExtractBundle(slug: string, bundle: unknown): void {
 }
 
 export function readExtractBundle(slug: string): Record<string, unknown> | null {
-  const dest = extractBundlePath(slug);
-  if (!existsSync(dest)) return null;
-  try {
-    return JSON.parse(readFileSync(dest, 'utf8')) as Record<string, unknown>;
-  } catch {
-    return null;
+  const candidates = [
+    extractBundlePath(slug),
+    path.join(rootDir(), 'designs', slug, 'extract.json'),
+  ];
+  for (const dest of candidates) {
+    if (!existsSync(dest)) continue;
+    try {
+      return JSON.parse(readFileSync(dest, 'utf8')) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 export function listPublicDesigns(): PublicDesign[] {

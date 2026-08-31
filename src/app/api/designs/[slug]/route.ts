@@ -5,10 +5,11 @@ import { BrowserUnavailableError } from '@/lib/browser';
 import { catalogUrlFor, readDesignMarkdown, readExtractBundle } from '@/lib/catalog';
 import { findCatalogEntry, SLUG_RE } from '@/lib/catalog-data';
 import { ExtractorBusyError, isExtractBundle, runExtract } from '@/lib/extract-job';
+import { isErrorName } from '@/lib/errors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 90;
+export const maxDuration = 60;
 
 function markdownResponse(slug: string, body: string, download: boolean) {
   const headers: Record<string, string> = {
@@ -60,16 +61,20 @@ export async function GET(request: Request, context: { params: Promise<{ slug: s
     if (err instanceof BlockedUrlError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
-    if (err instanceof BrowserUnavailableError) {
-      return NextResponse.json({ error: err.message }, { status: 503 });
+    if (err instanceof BrowserUnavailableError || isErrorName(err, 'BrowserUnavailableError')) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 503 });
     }
-    if (err instanceof ExtractorBusyError) {
-      return NextResponse.json({ error: err.message }, { status: 503, headers: { 'Retry-After': '10' } });
+    if (err instanceof ExtractorBusyError || isErrorName(err, 'ExtractorBusyError')) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 503, headers: { 'Retry-After': '10' } });
     }
-    if (err instanceof ExtractionError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+    if (err instanceof ExtractionError || isErrorName(err, 'ExtractionError')) {
+      const extraction = err as ExtractionError;
+      return NextResponse.json({ error: extraction.message }, { status: extraction.status || 502 });
     }
     console.error('[designs] extract failed:', err);
-    return NextResponse.json({ error: 'Could not build design.md for that site.' }, { status: 500 });
+    const detail = err instanceof Error ? err.message.split('\n')[0] : '';
+    return NextResponse.json({
+      error: detail ? `Could not build design.md: ${detail}` : 'Could not build design.md for that site.',
+    }, { status: 500 });
   }
 }

@@ -1,0 +1,12 @@
+{
+  "functions": {
+    "src/app/api/extract/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "src/app/api/designs/[slug]/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { chromium, type Browser } from 'playwright';
 
 /**
@@ -23,6 +24,66 @@ export class BrowserUnavailableError extends Error {
   }
 }
 
+function isServerless(): boolean {
+  return Boolean(
+    process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AWS_EXECUTION_ENV,
+  );
+}
+
+const LOCAL_ARGS = [
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-default-browser-check',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+];
+
+async function launchLocal(): Promise<Browser> {
+  return chromium.launch({ headless: true, args: LOCAL_ARGS });
+}
+
+/**
+ * Vercel / Lambda have no system Chromium and no Playwright browser cache.
+ * @sparticuz/chromium ships a brotli-compressed binary that unpacks to /tmp.
+ */
+async function launchServerless(): Promise<Browser> {
+  const [{ chromium: core }, pack] = await Promise.all([
+    import('playwright-core'),
+    import('@sparticuz/chromium'),
+  ]);
+  const Chromium = pack.default;
+  Chromium.setGraphicsMode = false;
+
+  const executablePath = await Chromium.executablePath();
+  const libDir = path.dirname(executablePath);
+  process.env.LD_LIBRARY_PATH = [libDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':');
+
+  return core.launch({
+    args: Chromium.args,
+    executablePath,
+    headless: true,
+  }) as Promise<Browser>;
+}
+
+function wrapLaunchError(err: Error): never {
+  const detail = err.message.split('\n')[0] ?? err.message;
+  if (isServerless()) {
+    throw new BrowserUnavailableError(
+      'Live extract needs Chromium. Vercel serverless has no system browser, so we unpack a serverless build — that failed here. ' +
+        'In the Vercel project set AWS_LAMBDA_JS_RUNTIME=nodejs22.x, give this function ≥60s and ≥1024MB, and turn Fluid Compute off if launch still fails. ' +
+        `Detail: ${detail}`,
+    );
+  }
+  if (/Executable doesn't exist|browserType.launch/i.test(err.message)) {
+    throw new BrowserUnavailableError(
+      'Chromium is not installed. Run "npm run setup" (playwright install chromium) and try again.',
+    );
+  }
+  throw new BrowserUnavailableError(`Could not start Chromium: ${detail}`);
+}
+
 export async function getBrowser(): Promise<Browser> {
   if (slot.promise) {
     try {
@@ -34,21 +95,7 @@ export async function getBrowser(): Promise<Browser> {
     slot.promise = null;
   }
 
-  slot.promise = chromium
-    .launch({
-      headless: true,
-      args: [
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        // The page is untrusted content; keep the sandbox on where possible but
-        // allow these hardening-neutral flags for headless stability.
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding',
-      ],
-    })
+  slot.promise = (isServerless() ? launchServerless() : launchLocal())
     .then((b) => {
       b.on('disconnected', () => {
         if (slot.promise) slot.promise = null;
@@ -57,12 +104,7 @@ export async function getBrowser(): Promise<Browser> {
     })
     .catch((err: Error) => {
       slot.promise = null;
-      if (/Executable doesn't exist|browserType.launch/i.test(err.message)) {
-        throw new BrowserUnavailableError(
-          'Chromium is not installed. Run "npm run setup" (playwright install chromium) and try again.',
-        );
-      }
-      throw err;
+      wrapLaunchError(err);
     });
 
   return slot.promise;
