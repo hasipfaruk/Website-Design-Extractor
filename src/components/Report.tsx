@@ -7,13 +7,16 @@ import { CopyButton, DownloadButton, Panel, Table } from './ui';
 
 export interface ExtractResponse {
   report: DesignReport;
+  slug?: string;
+  command?: string;
+  designMd?: string;
   markdown: string;
   css: string;
   tailwind: string;
   tokens: TokenBundle;
 }
 
-const TABS = ['Overview', 'Colours', 'Typography', 'Spacing & shape', 'Components', 'Icons', 'Markdown', 'Tokens'] as const;
+const TABS = ['Overview', 'Colours', 'Typography', 'Spacing & shape', 'Components', 'Icons', 'design.md', 'Markdown', 'Tokens'] as const;
 type Tab = (typeof TABS)[number];
 
 /**
@@ -37,7 +40,7 @@ const SEMANTIC_LABELS: Record<string, string> = {
   accent: 'Accent',
 };
 
-export default function Report({ data, onReset }: { data: ExtractResponse; onReset: () => void }) {
+export default function Report({ data, onReset }: { data: ExtractResponse; onReset?: () => void }) {
   const [tab, setTab] = useState<Tab>('Overview');
   const r = data.report;
 
@@ -90,8 +93,15 @@ export default function Report({ data, onReset }: { data: ExtractResponse; onRes
       </div>
 
       <div className="toolbar">
-        <DownloadButton filename={`${slugName}-design.md`} content={data.markdown} mime="text/markdown;charset=utf-8" label="↓ design.md" />
-        <CopyButton text={data.markdown} label="Copy markdown" />
+        <DownloadButton
+          filename="design.md"
+          content={data.designMd || data.markdown}
+          mime="text/markdown;charset=utf-8"
+          label="↓ design.md"
+        />
+        <CopyButton text={data.designMd || data.markdown} label="Copy design.md" />
+        <DownloadButton filename={`${slugName}-design.md`} content={data.markdown} mime="text/markdown;charset=utf-8" label="↓ full report" />
+        <CopyButton text={data.markdown} label="Copy report" />
         <DownloadButton
           filename={`${slugName}-tokens.json`}
           content={() => JSON.stringify(data.tokens, null, 2)}
@@ -100,9 +110,11 @@ export default function Report({ data, onReset }: { data: ExtractResponse; onRes
         />
         <CopyButton text={data.css} label="Copy CSS variables" />
         <CopyButton text={data.tailwind} label="Copy Tailwind theme" />
-        <button type="button" className="btn" onClick={onReset}>
-          Analyse another site
-        </button>
+        {onReset ? (
+          <button type="button" className="btn" onClick={onReset}>
+            Analyse another site
+          </button>
+        ) : null}
       </div>
 
       {r.warnings.length ? (
@@ -134,8 +146,16 @@ export default function Report({ data, onReset }: { data: ExtractResponse; onRes
       {tab === 'Spacing & shape' && <ShapeTab r={r} />}
       {tab === 'Components' && <ComponentsTab r={r} />}
       {tab === 'Icons' && <IconsTab r={r} />}
+      {tab === 'design.md' && (
+        <Panel
+          title="design.md"
+          hint="Agent-ready design language. Drop it in a project root and tell your coding agent to read it first."
+        >
+          <pre className="code">{data.designMd || data.markdown}</pre>
+        </Panel>
+      )}
       {tab === 'Markdown' && (
-        <Panel title="design.md" hint="The complete report as a single markdown file.">
+        <Panel title="Full extract report" hint="The complete technical report as a single markdown file.">
           <pre className="code">{data.markdown}</pre>
         </Panel>
       )}

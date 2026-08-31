@@ -2,14 +2,21 @@
   "name": "design-extractor",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "websift": "./cli/getdesign.mjs",
+    "getdesign": "./cli/getdesign.mjs"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "setup": "playwright install chromium"
+    "setup": "playwright install chromium",
+    "websift": "node cli/getdesign.mjs",
+    "getdesign": "node cli/getdesign.mjs"
   },
   "dependencies": {
     "culori": "^4.0.2",
+    "geist": "^1.7.2",
     "next": "^16.3.3",
     "playwright": "^1.62.1",
     "postcss": "^8.5.26",

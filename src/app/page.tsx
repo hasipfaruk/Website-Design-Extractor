@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import Report, { type ExtractResponse } from '@/components/Report';
-
-const EXAMPLES = ['stripe.com', 'linear.app', 'github.com', 'vercel.com', 'tailwindcss.com'];
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import Catalog, { type CatalogDesign } from '@/components/Catalog';
+import HeroDemo from '@/components/HeroDemo';
+import { CATALOG, type PublicDesign } from '@/lib/catalog-data';
 
 const STAGES = [
   'Launching a headless browser…',
@@ -11,27 +13,69 @@ const STAGES = [
   'Waiting for fonts and lazy content…',
   'Reading computed styles from every element…',
   'Parsing stylesheets for tokens and @font-face…',
-  'Building the report…',
+  'Writing design.md…',
 ];
 
+const FALLBACK: CatalogDesign[] = CATALOG.map((e) => ({
+  slug: e.slug,
+  name: e.name,
+  description: e.description,
+  url: e.url,
+  ready: !!e.file,
+  sections: e.sections ?? null,
+  screens: e.screens ?? null,
+}));
+
+function triggerDownload(filename: string, text: string) {
+  const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function Home() {
+  const router = useRouter();
   const [url, setUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<ExtractResponse | null>(null);
+  const [designs, setDesigns] = useState<CatalogDesign[]>(FALLBACK);
+  const [query, setQuery] = useState('');
+  const [selectedSlug, setSelectedSlug] = useState(CATALOG[0]?.slug ?? 'mobbin');
+  const [busySlug, setBusySlug] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Walk the status text forward while the request is in flight. Purely
-  // cosmetic - the server does not stream progress.
   useEffect(() => {
-    if (!busy) {
+    fetch('/api/designs')
+      .then((r) => r.json())
+      .then((payload: { designs?: PublicDesign[] }) => {
+        if (payload.designs?.length) setDesigns(payload.designs);
+      })
+      .catch(() => {
+        /* keep bundled fallback */
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!busy && !busySlug) {
       setStage(0);
       return;
     }
     const id = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 1600);
     return () => clearInterval(id);
-  }, [busy]);
+  }, [busy, busySlug]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 2400);
+    return () => clearTimeout(id);
+  }, [toast]);
 
   async function analyse(target: string) {
     const trimmed = target.trim();
@@ -39,7 +83,6 @@ export default function Home() {
 
     setBusy(true);
     setError(null);
-    setData(null);
 
     try {
       const res = await fetch('/api/extract', {
@@ -53,8 +96,12 @@ export default function Home() {
         setError(payload?.error ?? `Request failed with status ${res.status}.`);
         return;
       }
-      setData(payload as ExtractResponse);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      const slug = payload?.slug as string | undefined;
+      if (slug) {
+        router.push(`/d/${slug}`);
+        return;
+      }
+      setError('Extract finished but no design slug was returned.');
     } catch {
       setError('Could not reach the extractor. Is the dev server still running?');
     } finally {
@@ -62,112 +109,191 @@ export default function Home() {
     }
   }
 
-  function reset() {
-    setData(null);
+  async function addDesign(design: CatalogDesign) {
+    if (busySlug) return;
+    setBusySlug(design.slug);
     setError(null);
-    setUrl('');
-    inputRef.current?.focus();
+    try {
+      const res = await fetch(`/api/designs/${design.slug}?download=1`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const message = payload?.error ?? `Could not fetch design.md for ${design.slug}.`;
+        setError(message);
+        setToast(message);
+        return;
+      }
+      const text = await res.text();
+      triggerDownload('design.md', text);
+      setDesigns((prev) => prev.map((d) => (d.slug === design.slug ? { ...d, ready: true } : d)));
+      setToast(`design.md downloaded for ${design.name}`);
+    } catch {
+      setError('Could not download that design.md.');
+    } finally {
+      setBusySlug(null);
+    }
   }
 
   return (
-    <main className="shell">
-      <header className={data ? 'masthead compact' : 'masthead'}>
-        <div className="wordmark">
-          <span className="dot" />
-          Design Extractor
+    <div className="site">
+      <header className="topbar">
+        <Link className="wordmark" href="/">
+          WebSift
+        </Link>
+        <nav className="top-links">
+          <a href="#how">How it works</a>
+          <a href="#extract">Request an extract</a>
+          <a href="#catalog">Website catalog</a>
+        </nav>
+        <div className="top-search">
+          <input
+            type="search"
+            placeholder="Search design.md"
+            value={query}
+            onChange={(e) => {
+              const next = e.target.value;
+              setQuery(next);
+              if (next.trim()) {
+                document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+            }}
+            aria-label="Search design references"
+          />
         </div>
-        {!data && (
-          <>
-            <h1 className="title">Every design decision on any site, in one file.</h1>
-            <p className="lede">
-              Paste a URL. Get the colours, fonts, heading sizes, line heights, spacing scale, radii,
-              shadows, icons and components — as a report you can read, or a <code>design.md</code> you can download.
-            </p>
-          </>
-        )}
+        <a className="btn" href="#extract">
+          Start
+        </a>
       </header>
 
-      {!data && (
-        <>
-          <form
-            className="form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              analyse(url);
-            }}
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              inputMode="url"
-              autoComplete="url"
-              spellCheck={false}
-              placeholder="stripe.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              disabled={busy}
-              aria-label="Website URL"
-            />
-            <button type="submit" className="btn primary" disabled={busy || !url.trim()}>
-              {busy ? 'Analysing…' : 'Extract design'}
-            </button>
-          </form>
-
-          <div className="examples">
-            <span>Try:</span>
-            {EXAMPLES.map((e) => (
-              <button
-                key={e}
-                type="button"
-                className="chip"
-                disabled={busy}
-                onClick={() => {
-                  setUrl(e);
-                  analyse(e);
-                }}
-              >
-                {e}
-              </button>
-            ))}
+      <section className="hero-split">
+        <div className="hero-copy">
+          <p className="eyebrow">Open-source collection for AI coding agents</p>
+          <h1 className="title">
+            Give AI-built websites a real design with <em>WebSift</em>
+          </h1>
+          <p className="lede">
+            Give your coding agent a compelling reference: colors, typography, spacing, components,
+            and the reasoning behind them — so every page follows one visual language.
+          </p>
+          <div className="hero-actions">
+            <a className="btn primary" href="#catalog">
+              Browse catalog
+            </a>
+            <a className="btn" href="#extract">
+              Extract any URL
+            </a>
           </div>
+        </div>
+        <HeroDemo />
+      </section>
 
-          {error && <div className="alert">{error}</div>}
+      <section className="feature-grid" aria-label="Product">
+        <a href="#extract" className="feature-card">
+          <h3>Request an extract</h3>
+          <p>Paste a public URL. We read live computed styles and write a design.md.</p>
+        </a>
+        <a href="#catalog" className="feature-card">
+          <h3>Website catalog</h3>
+          <p>Browse references and open a full design-system analysis, or download the file.</p>
+        </a>
+        <a href="#how" className="feature-card">
+          <h3>How it works</h3>
+          <p>Generic AI layout on the left. The same screen after design.md on the right.</p>
+        </a>
+      </section>
 
-          {busy && (
-            <div className="progress">
-              <div className="bar" />
-              {STAGES[stage]}
-            </div>
-          )}
+      <section className="gd-extract" id="extract">
+        <div className="extract-copy">
+          <h2>Match a reference you like</h2>
+          <p>
+            Paste any public URL. Chromium renders the page, we read computed styles, and you get a{' '}
+            <code>design.md</code> plus a browsable analysis.
+          </p>
+        </div>
+        <form
+          className="form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            analyse(url);
+          }}
+        >
+          <input
+            ref={inputRef}
+            type="text"
+            inputMode="url"
+            autoComplete="url"
+            spellCheck={false}
+            placeholder="stripe.com"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            disabled={busy}
+            aria-label="Website URL"
+          />
+          <button type="submit" className="btn primary" disabled={busy || !url.trim()}>
+            {busy ? 'Extracting…' : 'Extract design.md'}
+          </button>
+        </form>
+        {error && <div className="alert">{error}</div>}
+        {busy && (
+          <div className="progress">
+            <div className="bar" />
+            {STAGES[stage]}
+          </div>
+        )}
+      </section>
 
-          {!busy && !error && (
-            <div className="features">
-              <div className="feature">
-                <h3>Real computed styles</h3>
-                <p>Chromium renders the page first, so you get sizes as shipped — not guesses from raw CSS.</p>
-              </div>
-              <div className="feature">
-                <h3>Typography, role by role</h3>
-                <p>h1 through h6, body, buttons, links and captions with size, weight, line height and tracking.</p>
-              </div>
-              <div className="feature">
-                <h3>Ranked colour palette</h3>
-                <p>Weighted by how much of the page each colour actually paints, with WCAG contrast for each.</p>
-              </div>
-              <div className="feature">
-                <h3>Tokens you can paste</h3>
-                <p>CSS custom properties, a Tailwind theme, JSON tokens, and the full markdown report.</p>
-              </div>
-            </div>
-          )}
-        </>
-      )}
+      <section className="how" id="how">
+        <h2>How it works</h2>
+        <ol>
+          <li>
+            <strong>Pick a reference</strong>
+            <span>Search the catalog or paste any public URL.</span>
+          </li>
+          <li>
+            <strong>We extract the system</strong>
+            <span>A real browser reads colours, type, spacing and components.</span>
+          </li>
+          <li>
+            <strong>You get design.md</strong>
+            <span>Open the analysis, download the file, hand it to your coding agent.</span>
+          </li>
+        </ol>
+      </section>
 
-      {data && <Report data={data} onReset={reset} />}
+      {error && busySlug === null && !busy ? (
+        <div className="alert catalog-error" role="alert">
+          {error}
+        </div>
+      ) : null}
 
-      <footer className="footer">
-        Runs a real browser against the URL you enter. Analyse sites you have permission to inspect.
+      <Catalog
+        designs={designs}
+        query={query}
+        busySlug={busySlug}
+        selectedSlug={selectedSlug}
+        onSelect={setSelectedSlug}
+        onAdd={addDesign}
+      />
+
+      {toast && <div className="toast">{toast}</div>}
+
+      <footer className="site-footer">
+        <div>
+          <strong>WebSift</strong>
+          <p>Sift any site into a complete design system your agent can follow.</p>
+        </div>
+        <div>
+          <b>Product</b>
+          <a href="#extract">Request an extract</a>
+          <a href="#catalog">Website catalog</a>
+          <a href="#how">How it works</a>
+        </div>
+        <div>
+          <b>Use</b>
+          <span>Download design.md</span>
+          <span>Open the analysis</span>
+          <span>Give it to your agent</span>
+        </div>
       </footer>
-    </main>
+    </div>
   );
 }

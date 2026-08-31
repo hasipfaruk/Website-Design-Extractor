@@ -1,22 +1,16 @@
 import { NextResponse } from 'next/server';
-import { extractDesign, ExtractionError } from '@/lib/extract';
+import { ExtractionError } from '@/lib/extract';
 import { BlockedUrlError } from '@/lib/guard';
 import { BrowserUnavailableError } from '@/lib/browser';
-import { toMarkdown } from '@/lib/markdown';
-import { toCssVariables, toTailwindConfig, toTokens } from '@/lib/exporters';
+import { slugFromUrl } from '@/lib/catalog-data';
+import { ExtractorBusyError, runExtract } from '@/lib/extract-job';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 90;
 
-// --------------------------------------------------------------- throttling
-// Chromium contexts are expensive; without these an open endpoint is trivial
-// to knock over. In-memory only - a multi-instance deploy needs shared state.
-const MAX_CONCURRENT = 3;
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60_000;
-
-let inFlight = 0;
 const hits = new Map<string, number[]>();
 
 function rateLimited(ip: string): boolean {
@@ -25,7 +19,6 @@ function rateLimited(ip: string): boolean {
   recent.push(now);
   hits.set(ip, recent);
 
-  // Opportunistic cleanup so the map cannot grow without bound.
   if (hits.size > 5000) {
     for (const [k, v] of hits) {
       if (!v.some((t) => now - t < RATE_WINDOW_MS)) hits.delete(k);
@@ -49,13 +42,6 @@ export async function POST(req: Request) {
     );
   }
 
-  if (inFlight >= MAX_CONCURRENT) {
-    return NextResponse.json(
-      { error: 'The extractor is busy with other sites. Try again in a moment.' },
-      { status: 503, headers: { 'Retry-After': '10' } },
-    );
-  }
-
   let url: string;
   try {
     const body = await req.json();
@@ -64,16 +50,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Expected a JSON body with a "url" field.' }, { status: 400 });
   }
 
-  inFlight++;
   try {
-    const report = await extractDesign(url);
-
+    const bundle = await runExtract(url);
+    const slug = slugFromUrl(bundle.report.meta.domain || bundle.report.meta.finalUrl);
     return NextResponse.json({
-      report,
-      markdown: toMarkdown(report),
-      css: toCssVariables(report),
-      tailwind: toTailwindConfig(report),
-      tokens: toTokens(report),
+      report: bundle.report,
+      slug,
+      designMd: bundle.designMd,
+      markdown: bundle.markdown,
+      css: bundle.css,
+      tailwind: bundle.tailwind,
+      tokens: bundle.tokens,
     });
   } catch (err) {
     if (err instanceof BlockedUrlError) {
@@ -81,6 +68,9 @@ export async function POST(req: Request) {
     }
     if (err instanceof BrowserUnavailableError) {
       return NextResponse.json({ error: err.message }, { status: 503 });
+    }
+    if (err instanceof ExtractorBusyError) {
+      return NextResponse.json({ error: err.message }, { status: 503, headers: { 'Retry-After': '10' } });
     }
     if (err instanceof ExtractionError) {
       return NextResponse.json({ error: err.message }, { status: err.status });
@@ -90,7 +80,5 @@ export async function POST(req: Request) {
       { error: 'Something went wrong while analysing that site.' },
       { status: 500 },
     );
-  } finally {
-    inFlight--;
   }
 }
