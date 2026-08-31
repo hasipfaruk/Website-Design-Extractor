@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: websift
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOW_MEMORY
+        value: "1"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"

@@ -1,3 +1,13 @@
+---
+title: WebSift
+emoji: 🎨
+colorFrom: pink
+colorTo: gray
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Design Extractor
 
 Paste a website URL, get its design system: colours, fonts, heading sizes, line
@@ -96,9 +106,27 @@ Rate limiting is in-memory, so a multi-instance deployment needs shared state.
 
 ## Deployment
 
-Needs a Node runtime that can run Chromium — Railway, Render, Fly.io, or a VPS.
-Standard Vercel serverless functions cannot; that would need
-`@sparticuz/chromium` with `playwright-core`.
+Live extract needs a real Linux box with Chromium. **Vercel cannot do that.**
+Render’s free plan now asks for a card. Deploy on **Hugging Face Spaces** —
+no card, public URL, enough RAM for Chromium.
+
+### Hugging Face Spaces (free, no card)
+
+1. Create a free account at [huggingface.co](https://huggingface.co/join).
+2. Open [huggingface.co/new-space](https://huggingface.co/new-space).
+3. **Space name:** `websift` (or anything).
+4. **SDK:** Docker. **Hardware:** CPU basic (free).
+5. Create the Space, then **Settings → Linked to GitHub** (or clone and push):
+
+```bash
+git remote add hf https://huggingface.co/spaces/YOUR_USERNAME/websift
+git push hf main
+```
+
+6. Wait for the Docker build. Share `https://YOUR_USERNAME-websift.hf.space`.
+
+The Space sleeps after **48 hours idle**. The next visitor waits for a wake-up,
+then extract works. That is still a public site people can use.
 
 ```bash
 npm run build && npm start

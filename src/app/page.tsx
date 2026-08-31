@@ -206,7 +206,8 @@ export default function Home() {
           <h2>Match a reference you like</h2>
           <p>
             Paste any public URL. Chromium renders the page, we read computed styles, and you get a{' '}
-            <code>design.md</code> plus a browsable analysis.
+            <code>design.md</code> plus a browsable analysis. The first visit after idle can take a
+            minute while the free server wakes.
           </p>
         </div>
         <form

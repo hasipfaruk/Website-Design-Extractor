@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.cursor
+*.md
+!README.md
+designs/**/extract.json
+.env*
+.DS_Store

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/start.mjs",
     "setup": "playwright install chromium",
     "websift": "node cli/getdesign.mjs",
     "getdesign": "node cli/getdesign.mjs"

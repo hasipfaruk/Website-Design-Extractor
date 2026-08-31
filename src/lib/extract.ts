@@ -1,5 +1,5 @@
 import type { BrowserContext, Page, Response } from 'playwright';
-import { getBrowser } from './browser';
+import { closeBrowser, getBrowser, isLowMemoryHost } from './browser';
 import { normalizeUrl, assertPublicHost, isObviouslyBlockedUrl, BlockedUrlError } from './guard';
 import { COLLECT_SCRIPT, type RawCollected } from './page-script';
 import { parseCssBundle, type CssSource } from './css-parse';
@@ -197,5 +197,6 @@ export async function extractDesign(inputUrl: string): Promise<DesignReport> {
     });
   } finally {
     if (context) await context.close().catch(() => {});
+    if (isLowMemoryHost()) await closeBrowser();
   }
 }

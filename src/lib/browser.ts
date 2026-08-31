@@ -30,6 +30,12 @@ function isServerless(): boolean {
   );
 }
 
+/** Render / tiny Docker boxes are ~512MB. Hugging Face Spaces has more RAM. */
+export function isLowMemoryHost(): boolean {
+  if (process.env.SPACE_ID) return false;
+  return Boolean(process.env.LOW_MEMORY || process.env.RENDER);
+}
+
 const LOCAL_ARGS = [
   '--disable-dev-shm-usage',
   '--disable-gpu',
@@ -40,8 +46,16 @@ const LOCAL_ARGS = [
   '--disable-renderer-backgrounding',
 ];
 
+const CONTAINER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--single-process',
+  '--no-zygote',
+];
+
 async function launchLocal(): Promise<Browser> {
-  return chromium.launch({ headless: true, args: LOCAL_ARGS });
+  const args = isLowMemoryHost() ? [...LOCAL_ARGS, ...CONTAINER_ARGS] : LOCAL_ARGS;
+  return chromium.launch({ headless: true, args });
 }
 
 /**
